@@ -5,6 +5,7 @@ then batch-build edits: cuts (new timeline from segments), punch-in zooms,
 and subtitles (native SRT track and/or Text+). Works on Free and Studio.
 """
 
+import functools
 import glob
 import json
 import os
@@ -21,7 +22,13 @@ WORK_DIR = os.path.expanduser("~/.cache/resolve-mcp-bridge/work")
 
 
 def _tool(fn):
-    """Run a tool body, converting exceptions into readable error payloads."""
+    """Run a tool body, converting exceptions into readable error payloads.
+
+    functools.wraps is essential: FastMCP derives the tool's parameter schema
+    from the function signature, and wraps lets inspect.signature() see through
+    the wrapper (a bare *args/**kwargs wrapper breaks every schema).
+    """
+    @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -29,8 +36,6 @@ def _tool(fn):
             return {"status": "error", "message": str(e)}
         except Exception as e:
             return {"status": "error", "message": f"{type(e).__name__}: {e}"}
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 
@@ -227,22 +232,22 @@ def add_subtitles_srt(srt_content: str, timeline_name: str = "") -> dict:
     with open(srt_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
 
-    before = int(tl.GetTrackCount("subtitle"))
     imported = media_pool.ImportMedia([srt_path])
     if not imported:
         raise ra.ResolveError("SRT-import in de media pool faalde.")
-    ok = media_pool.AppendToTimeline(imported)
-    after = int(tl.GetTrackCount("subtitle"))
-    count = None
-    if after > 0:
-        last = tl.GetItemListInTrack("subtitle", after) or []
-        count = len(last)
-    if not ok and after <= before and not count:
+    # A subtitle track must exist before the SRT can be placed on the timeline.
+    if int(tl.GetTrackCount("subtitle")) == 0:
+        tl.AddTrack("subtitle")
+    media_pool.AppendToTimeline(imported)
+    track = int(tl.GetTrackCount("subtitle"))
+    items = tl.GetItemListInTrack("subtitle", track) if track else []
+    count = len(items or [])
+    if count == 0:
         return {"status": "error", "srt_file": srt_path,
-                "message": "SRT staat in de media pool maar kon niet op de timeline geplaatst "
-                           "worden. Sleep hem handmatig op het subtitle-spoor, of gebruik add_text_plus."}
+                "message": "SRT staat in de media pool maar landde niet op het subtitle-spoor. "
+                           "Sleep hem handmatig op het spoor, of gebruik add_text_plus."}
     return {"status": "success", "timeline": tl.GetName(), "srt_file": srt_path,
-            "subtitle_tracks": after, "items_on_last_track": count}
+            "subtitle_tracks": track, "subtitles_placed": count}
 
 
 @mcp.tool()
@@ -317,10 +322,48 @@ def render_still(timecode: str = "", out_dir: str = "") -> dict:
     prefix = f"still_{int(time.time())}"
     album.ExportStills([still], out_dir, prefix, "png")
     album.DeleteStills([still])
-    files = sorted(glob.glob(os.path.join(out_dir, f"{prefix}*")), key=os.path.getmtime)
-    if not files:
-        raise ra.ResolveError("Export van still leverde geen bestand op.")
-    return {"status": "success", "file": files[-1], "timecode": tl.GetCurrentTimecode()}
+    pngs = sorted(glob.glob(os.path.join(out_dir, f"{prefix}*.png")), key=os.path.getmtime)
+    if not pngs:
+        raise ra.ResolveError("Export van still leverde geen PNG op.")
+    return {"status": "success", "file": pngs[-1], "timecode": tl.GetCurrentTimecode()}
+
+
+@mcp.tool()
+@_tool
+def add_markers(markers: list, timeline_name: str = "") -> dict:
+    """Batch-add markers to a timeline to document edit decisions.
+    Each marker: {"sec": float (timeline seconds, 0 = timeline start), "color": str
+    (Blue/Cyan/Green/Yellow/Red/Pink/Purple/Fuchsia/Rose/Lavender/Sky/Mint/Lemon/
+    Sand/Cocoa/Cream), "name": str, "note": str?, "duration_sec": float?}.
+    Convention: Red = removed retake/flub here, Yellow = removed silence/filler,
+    Blue = info. Markers sit on the timeline ruler, visible in Edit page."""
+    _, project = ra.get_project()
+    tl = ra.get_timeline(project, timeline_name or None)
+    fps = ra.timeline_fps(tl)
+    added, errors = 0, []
+    for m in markers:
+        frame = int(round(float(m["sec"]) * fps))
+        dur = max(1, int(round(float(m.get("duration_sec", 0)) * fps)))
+        ok = tl.AddMarker(frame, m.get("color", "Blue"), m.get("name", ""),
+                          m.get("note", ""), dur, "")
+        if ok:
+            added += 1
+        else:
+            errors.append(f"marker op {m['sec']}s geweigerd (frame {frame})")
+    return {"status": "success" if not errors else "partial", "added": added, "errors": errors}
+
+
+@mcp.tool()
+@_tool
+def delete_timeline(timeline_name: str) -> dict:
+    """Delete a timeline by exact name (e.g. an obsolete edit iteration).
+    The media pool and source clips are untouched. Cannot be undone via API."""
+    _, project = ra.get_project()
+    tl = ra.get_timeline(project, timeline_name)
+    mp = project.GetMediaPool()
+    ok = mp.DeleteTimelines([tl])
+    return {"status": "success" if ok else "error",
+            "message": f"Timeline '{timeline_name}' verwijderd." if ok else "DeleteTimelines gaf false terug."}
 
 
 @mcp.tool()
