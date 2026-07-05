@@ -20,6 +20,56 @@ MODEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRATCH = os.path.expanduser("~/.cache/resolve-mcp-bridge/work")
 
 
+SKIP_BINS = ("Timelines", "FX", "SFX", "AI", "COMPOUND", "b-roll")
+
+
+def discover():
+    """Mappen met raw clips in het open project + of er al een timeline naar vernoemd is.
+
+    Returns: [{"folder", "video" (mapnaam = videonaam), "clips": [{name, path, duration_s}],
+               "timeline_exists": bool}]
+    """
+    _, project = ra.get_project()
+    timelines = {project.GetTimelineByIndex(i).GetName()
+                 for i in range(1, int(project.GetTimelineCount()) + 1)}
+    byfolder = {}
+    for folder, clip in ra.iter_media_pool_clips(project.GetMediaPool()):
+        if any(s.lower() in folder.lower() for s in SKIP_BINS):
+            continue
+        path = clip.GetClipProperty("File Path") or ""
+        tp = clip.GetClipProperty("Type") or ""
+        if not path or "Video" not in tp or "Audio" not in tp:
+            continue
+        try:
+            fps = float(clip.GetClipProperty("FPS"))
+            h, m, s, f = (int(x) for x in (clip.GetClipProperty("Duration") or "0:0:0:0")
+                          .replace(";", ":").split(":"))
+            dur = h * 3600 + m * 60 + s + f / max(fps, 1)
+        except (TypeError, ValueError):
+            dur = None
+        byfolder.setdefault(folder, []).append(
+            {"name": clip.GetName(), "path": path, "duration_s": round(dur, 1) if dur else None})
+    out = []
+    for folder, clips in sorted(byfolder.items()):
+        video = folder.rstrip("/").split("/")[-1]
+        out.append({"folder": folder, "video": video, "clips": clips,
+                    "timeline_exists": video in timelines})
+    return out
+
+
+def free_timeline_name(wanted):
+    """Eerste vrije timeline-naam: 'X', anders 'X 2', 'X 3', ... Nooit iets overschrijven."""
+    _, project = ra.get_project()
+    existing = {project.GetTimelineByIndex(i).GetName()
+                for i in range(1, int(project.GetTimelineCount()) + 1)}
+    if wanted not in existing:
+        return wanted
+    n = 2
+    while f"{wanted} {n}" in existing:
+        n += 1
+    return f"{wanted} {n}"
+
+
 def fill_zoom(clip, tw=1080, th=1920):
     """Zoom needed so a clip fills a tw x th canvas (Resolve zoom is relative to fit)."""
     res = clip.GetClipProperty("Resolution") or ""
