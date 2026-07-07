@@ -37,6 +37,35 @@ claude mcp add resolve-bridge --scope user \
   -- "<repo>/.venv/bin/python" "<repo>/src/resolve_bridge/server.py"
 ```
 
+## Team setup (collega's met Claude Code)
+
+Volledige setup vanaf nul, per persoon (macOS):
+
+```sh
+git clone <repo-url> && cd resolve-mcp-bridge
+brew install python@3.11 ffmpeg whisper-cpp
+python3.11 -m venv .venv && ./.venv/bin/pip install "mcp[cli]"
+curl -L -o models/ggml-large-v3-turbo-q5_0.bin \
+  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+./.venv/bin/python scripts/test_helpers.py     # offline sanity check (geen Resolve nodig)
+```
+
+Dan Resolve openen (Preferences > System > General > External scripting: **Local**),
+de `claude mcp add`-regel hierboven draaien met jouw absolute repo-pad, en de
+edit-skill installeren zodat Claude het volledige draaiboek volgt:
+
+```sh
+mkdir -p ~/.claude/skills && cp -R skills/davinci-edit ~/.claude/skills/
+```
+
+Integratietest met Resolve open: `./.venv/bin/python scripts/validate.py`.
+
+De skill (`skills/davinci-edit/SKILL.md`) bevat de volledige werkwijze: editbrief
+lezen, genre-bewust knippen, subs exact op het gesproken woord, muziekbed + SFX,
+en een verplicht `qa_report()` vóór oplevering. Belangrijk voor de batch-pipeline:
+`scripts/base_layer.py` (helpers) — env-overrides `RESOLVE_BRIDGE_WHISPER_MODEL`
+en `RESOLVE_BRIDGE_WHISPER_BIN` als je model of binary ergens anders staat.
+
 ## Tools
 
 | Tool | What it does |
