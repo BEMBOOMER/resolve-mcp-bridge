@@ -115,6 +115,8 @@ def build(name, segments, fps_note=None):
         transforms.append({"index": i, "zoom": fill_zoom(mpi) if mpi else 1.0})
     srv.set_transforms(transforms, track=1, timeline_name=name)
     dur = (items[-1].GetEnd() - items[0].GetStart()) / ra.timeline_fps(tl) if items else 0
+    monitor_event(f"timeline '{name}': {len(items)} clips, {dur:.1f}s", "ok")
+    monitor_timeline(name)
     return {"clips": len(items), "duration": round(dur, 2)}
 
 
@@ -128,6 +130,7 @@ def render(name, custom_name, target_dir):
     Bugfix 2026-07-07: custom_name mag met of zonder .mp4; het teruggegeven pad wordt
     geverifieerd op schijf (voorheen kwam er 'naam.mp4.mp4' terug)."""
     base = custom_name[:-4] if custom_name.lower().endswith(".mp4") else custom_name
+    monitor_event(f"render '{name}' -> {base}.mp4 gestart")
     resolve, project = ra.get_project()
     tl = ra.get_timeline(project, name)
     project.SetCurrentTimeline(tl)
@@ -146,6 +149,7 @@ def render(name, custom_name, target_dir):
         raise RuntimeError(f"render {base}: {status}")
     expected = os.path.join(target_dir, base + ".mp4")
     if os.path.isfile(expected) and os.path.getsize(expected) > 0:
+        monitor_event(f"render '{base}.mp4' klaar", "ok")
         return expected
     # Resolve kan de naam uniek maken ("naam 1.mp4") — pak de nieuwste match
     matches = sorted(glob.glob(os.path.join(target_dir, base + "*.mp4")),
@@ -350,7 +354,10 @@ def captions_from_listen(name, spans, lead=0.0, max_chars=18, **_legacy):
     lead=0.0: subs vallen EXACT op het gesproken woord (Roelof-correctie 2026-07-07). Oude
     min_dur-kwarg wordt genegeerd (geen padding meer)."""
     entries = format_oneline(spans, lead=lead, max_chars=max_chars)
-    return srv.add_subtitles_srt(_srt(entries), timeline_name=name)
+    r = srv.add_subtitles_srt(_srt(entries), timeline_name=name)
+    monitor_event(f"{len(entries)} subs op '{name}' (lead 0)", "ok")
+    monitor_timeline(name)
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +438,10 @@ def music_bed(name, track_path, level_db=-16.0, fade_in=0.2, fade_out=0.5,
                     "-af", f"volume={level_db}dB,afade=t=in:st=0:d={fade_in},"
                            f"afade=t=out:st={fo_start:.3f}:d={fade_out}",
                     "-ar", "48000", bed], check=True)
-    return place_audio(name, bed, at_sec=0.0, track_index=track_index)
+    r = place_audio(name, bed, at_sec=0.0, track_index=track_index)
+    monitor_event(f"muziekbed op '{name}' ({level_db}dB, {dur:.1f}s)", "ok")
+    monitor_timeline(name)
+    return r
 
 
 def sfx_at(name, path, at_sec, gain_db=0.0, track_index=3):
@@ -442,7 +452,9 @@ def sfx_at(name, path, at_sec, gain_db=0.0, track_index=3):
         src = os.path.join(SCRATCH, f"sfx_{abs(hash((path, gain_db, at_sec)))}.wav")
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path,
                         "-af", f"volume={gain_db}dB", "-ar", "48000", src], check=True)
-    return place_audio(name, src, at_sec=at_sec, track_index=track_index)
+    r = place_audio(name, src, at_sec=at_sec, track_index=track_index)
+    monitor_event(f"SFX '{os.path.basename(path)}' op {at_sec:.2f}s ({name})", "ok")
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -634,7 +646,114 @@ def qa_report(name, mp4=None, out_dir=None):
         f.write("\n".join(lines) + "\n")
     with open(os.path.join(out_dir, "report.json"), "w") as f:
         json.dump(rep, f, ensure_ascii=False, indent=1)
+    monitor_update(qa={"timeline": name, "ok": rep["ok"], "flags": flags,
+                       "duration_s": rep["duration_s"], "sub_count": rep["sub_count"],
+                       "lufs": rep["integrated_lufs"],
+                       "sub_sync_worst": rep["sub_sync"]["worst_offset_s"],
+                       "dir": out_dir})
+    monitor_event("QA '" + name + "': " + ("SCHOON" if rep["ok"] else " | ".join(flags)),
+                  "ok" if rep["ok"] else "warn")
     return rep
+
+
+# ---------------------------------------------------------------------------
+# Regiekamer-monitor: live voortgang + besturing via scripts/monitor.py (2026-07-08)
+# ---------------------------------------------------------------------------
+
+MONITOR_DIR = os.path.expanduser("~/.cache/resolve-mcp-bridge/monitor")
+
+
+def _monitor_path(fn):
+    os.makedirs(MONITOR_DIR, exist_ok=True)
+    return os.path.join(MONITOR_DIR, fn)
+
+
+def monitor_update(**kw):
+    """Merge velden in state.json (project, video, phase, phases, qa, note, ...).
+    Faalt nooit hard — de monitor mag de pipeline niet breken."""
+    try:
+        p = _monitor_path("state.json")
+        state = {}
+        if os.path.isfile(p):
+            with open(p) as f:
+                state = json.load(f)
+        state.update(kw)
+        state["updated"] = time.time()
+        with open(p, "w") as f:
+            json.dump(state, f, ensure_ascii=False)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def monitor_event(msg, level="info"):
+    """Append een regel aan de live-feed (level: info|ok|warn|act)."""
+    try:
+        with open(_monitor_path("events.jsonl"), "a") as f:
+            f.write(json.dumps({"t": time.time(), "level": level, "msg": str(msg)},
+                               ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def monitor_timeline(name):
+    """Push een timeline-snapshot (tracks/items/subs) naar de monitor-UI."""
+    try:
+        info = srv.get_timeline_items(name)
+        vids = next((t["items"] for t in info["tracks"]
+                     if t["type"] == "video" and t["track"] == 1), [])
+        t0 = vids[0]["start_sec"] if vids else 0.0
+        tracks = []
+        for tr in info["tracks"]:
+            tracks.append({"type": tr["type"], "track": tr["track"], "items": [
+                {"name": it["name"], "start": round(it["start_sec"] - t0, 3),
+                 "end": round(it["end_sec"] - t0, 3)} for it in tr["items"]]})
+        dur = max((it["end"] for tr in tracks for it in tr["items"]), default=0.0)
+        monitor_update(timeline={"name": name, "duration": round(dur, 2),
+                                 "fps": info.get("fps"), "tracks": tracks})
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def monitor_poll():
+    """Nieuwe commando's uit de UI (notities, aanwijzingen, verplaatsingen, pauze).
+    Elk commando wordt gemarkeerd als opgehaald; beantwoord het met monitor_event().
+    AANROEPEN: tussen elke fase en vóór onomkeerbare stappen."""
+    p = _monitor_path("commands.jsonl")
+    if not os.path.isfile(p):
+        return []
+    with open(p) as f:
+        cmds = [json.loads(l) for l in f if l.strip()]
+    new = [c for c in cmds if c.get("status") == "new"]
+    if new:
+        for c in cmds:
+            if c.get("status") == "new":
+                c["status"] = "picked_up"
+        with open(p, "w") as f:
+            f.writelines(json.dumps(c, ensure_ascii=False) + "\n" for c in cmds)
+        for c in new:
+            monitor_event(f"commando opgepakt: {c.get('type')} — "
+                          f"{json.dumps(c.get('payload', {}), ensure_ascii=False)[:90]}", "act")
+    return new
+
+
+def monitor_phase(video, phase_id, status, detail=""):
+    """Zet één fase-status (pending|busy|done|flag) in het fasen-overzicht."""
+    try:
+        p = _monitor_path("state.json")
+        state = {}
+        if os.path.isfile(p):
+            with open(p) as f:
+                state = json.load(f)
+        names = ["0 inventaris", "1 luisteren", "2 snijpunten", "3 bouwen",
+                 "4 captions", "5 verifiëren", "6 rapport"]
+        phases = state.get("phases") or [{"id": i, "name": n, "status": "pending",
+                                          "detail": ""} for i, n in enumerate(names)]
+        for ph in phases:
+            if ph["id"] == phase_id:
+                ph["status"], ph["detail"] = status, detail
+        monitor_update(video=video, phase=phase_id, phases=phases)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------

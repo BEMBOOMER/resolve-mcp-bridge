@@ -126,6 +126,31 @@ en IN de fx-map zetten zodat het project compleet blijft.
    actie-beats (boer op het zitten, scratch op de omkijk). SFX-sync is precisiewerk:
    bepaal het actie-frame met een frame-extract, niet op gehoor/gok.
 
+## Regiekamer — live monitor + besturing (verplicht bij elke edit-sessie)
+
+Roelof kijkt en stuurt mee via http://127.0.0.1:8765 (`scripts/monitor.py`, geen deps).
+Bij sessiestart: check `curl -s 127.0.0.1:8765/api/state`; draait er niks, start dan
+`nohup "$REPO/.venv/bin/python" "$REPO/scripts/monitor.py" >/dev/null 2>&1 &` en meld
+Roelof de URL. Init: `monitor_update(project=..., status=..., session_start=time.time())`.
+
+**Rapporteren (jij → UI):** `monitor_phase(video, fase_id, "busy|done|flag", detail)`
+bij elke fase-overgang; `monitor_event(msg)` bij beslissingen en twijfels;
+`monitor_timeline(naam)` na elke timeline-wijziging (build/captions/music_bed/sfx_at
+doen dit al automatisch). Schrijf zoals je markers schrijft: kort, concreet, eerlijk.
+
+**Besturing (UI → jou):** roep `monitor_poll()` aan TUSSEN elke fase en vóór
+onomkeerbare stappen. Commando-semantiek:
+- `pause` → stop met werken; poll elke ~5s door tot `resume` komt
+- `note` → Roelof-instructie, direct meenemen in het lopende werk
+- `point` (timecode) → extraheer een frame op dat moment, kijk wat er speelt,
+  reageer via `monitor_event` met wat je ziet/doet
+- `note_item` (clip/sub + notitie) → feedback op precies dat item
+- `move_clip` (from/to) → herbouw de timeline met de verplaatste clipvolgorde
+- `approve` → video is goed; rond af (SRT, markers, edit_log) en ga naar de volgende
+- `redo` (notitie) → behandel de notitie als nieuwe brief voor die video
+Sluit elk verwerkt commando af met een `monitor_event` die zegt wat je ermee deed —
+Roelof moet in de feed kunnen zien dat zijn input geland is.
+
 ## Werkwijze
 
 ### Fase 0 — inventaris en plan

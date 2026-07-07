@@ -40,6 +40,15 @@ claude mcp add resolve-bridge --scope user \
   -- "<repo>/.venv/bin/python" "<repo>/src/resolve_bridge/server.py"
 ```
 
+## Regiekamer (live monitor + controller)
+
+Start `./.venv/bin/python scripts/monitor.py` and open http://127.0.0.1:8765 —
+a DaVinci-styled dashboard showing live pipeline progress (phases, timeline
+tracks, QA, event feed) while Claude edits. It is also a controller: send
+instructions, point at a timecode, comment on a clip/subtitle, drag video clips
+to reorder, pause/approve/redo. Commands land in Claude's queue and are picked
+up between pipeline phases.
+
 ## Team setup (collega's met Claude Code)
 
 Volledige setup vanaf nul, per persoon (macOS):

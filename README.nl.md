@@ -49,6 +49,14 @@ Claude leest eerst de editbrief (`script/`-map van het project), knipt genre-bew
 (sketches houden hun stiltes, pratende video's worden strak), zet subs exact op het
 gesproken woord en controleert zichzelf met `qa_report()` vóór oplevering.
 
+## Regiekamer (meekijken + sturen)
+
+Start `./.venv/bin/python scripts/monitor.py` en open http://127.0.0.1:8765 —
+een dashboard in DaVinci-stijl met live voortgang (fases, timeline, QA, feed)
+terwijl Claude edit. Ook een afstandsbediening: instructies sturen, op de
+timeline aanwijzen, notities op een clip of sub, clips verslepen om te
+verplaatsen, pauzeren/goedkeuren/opnieuw.
+
 ## Spelregels
 
 - Claude **exporteert niet** en verwijdert **nooit** bestaande timelines; het bouwt

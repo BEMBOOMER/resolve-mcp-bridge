@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regiekamer — davinci-edit</title>
+<style>
+  :root{
+    --bg:#141414; --panel:#1d1d1d; --panel2:#232323; --line:#2b2b2b;
+    --txt:#cfcfcf; --dim:#8b8b8b; --faint:#5c5c5c;
+    --accent:#e5744b; --ok:#7fa377; --warn:#d2a24c; --err:#b8574e;
+    --video:#46607a; --dialog:#4e6e55; --music:#3f6a63; --sfx:#6e5e46; --subs:#6d5680;
+    --mono:"SF Mono","JetBrains Mono",Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,"Inter","Segoe UI",sans-serif;padding-bottom:24px}
+  header{display:flex;align-items:center;gap:14px;background:#191919;border-bottom:1px solid var(--line);padding:10px 18px;position:sticky;top:0;z-index:5}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none}
+  .dot.busy{background:var(--accent);animation:pulse 1.4s infinite}
+  .dot.done{background:var(--ok)} .dot.off{background:var(--faint)}
+  @keyframes pulse{50%{opacity:.35}}
+  h1{font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  h1 b{color:var(--txt);font-weight:700}
+  .crumb{font-size:13px;color:var(--dim)} .crumb b{color:var(--txt);font-weight:600}
+  .tape{margin-left:auto;font:12px var(--mono);color:var(--dim)}
+  .tape b{color:var(--accent);font-weight:600}
+  .conn{font-size:11px;color:var(--faint)}
+  main{display:grid;grid-template-columns:250px 1fr 300px;gap:12px;padding:14px 18px;max-width:1500px;margin:0 auto;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .panel>.hd{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .panel>.bd{padding:10px 12px}
+  /* fases */
+  .phase{display:flex;gap:10px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid #202020}
+  .phase:last-child{border-bottom:0}
+  .ph-dot{width:22px;height:22px;border-radius:4px;border:1px solid var(--line);background:var(--panel2);flex:none;display:flex;align-items:center;justify-content:center;font:11px var(--mono);color:var(--dim)}
+  .phase.busy .ph-dot{border-color:var(--accent);color:var(--accent)}
+  .phase.done .ph-dot{background:#243024;border-color:#3c5741;color:var(--ok)}
+  .phase.flag .ph-dot{border-color:var(--err);color:var(--err)}
+  .ph-name{font-size:13px} .phase.busy .ph-name{color:#fff}
+  .ph-det{font-size:11px;color:var(--dim);margin-top:1px}
+  /* qa */
+  .qa-row{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px solid #202020}
+  .qa-row:last-child{border-bottom:0}
+  .qa-row .v{font-family:var(--mono);font-size:12px;color:var(--txt)}
+  .qa-ok{color:var(--ok);font-weight:600}.qa-bad{color:var(--err);font-weight:600}
+  .flagline{font-size:12px;color:var(--warn);padding:3px 0}
+  /* timeline */
+  .tlwrap{padding:14px 12px 10px}
+  .ruler{position:relative;height:20px;margin-left:64px;border-bottom:1px solid var(--line);cursor:crosshair}
+  .tick{position:absolute;top:0;height:100%;border-left:1px solid #333}
+  .tick span{position:absolute;top:1px;left:3px;font:9px var(--mono);color:var(--faint)}
+  .marker{position:absolute;top:0;bottom:0;width:1px;background:var(--accent)}
+  .marker::after{content:"";position:absolute;top:-1px;left:-3px;border:4px solid transparent;border-top-color:var(--accent)}
+  .trackrow{display:flex;align-items:stretch;margin-top:6px}
+  .tlabel{width:64px;flex:none;font:10px var(--mono);color:var(--dim);display:flex;align-items:center;padding-left:2px;text-transform:uppercase;letter-spacing:.08em}
+  .lane{position:relative;flex:1;height:36px;background:#181818;border:1px solid #242424;border-radius:3px}
+  .lane.small{height:20px}
+  .clip{position:absolute;top:2px;bottom:2px;border-radius:3px;border:1px solid rgba(0,0,0,.45);overflow:hidden;cursor:grab;display:flex;align-items:center}
+  .clip span{font:10px var(--mono);color:rgba(255,255,255,.85);padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .clip.sel{outline:2px solid var(--accent);outline-offset:-1px}
+  .clip.dragging{opacity:.4}
+  .clip.drop-l{box-shadow:inset 3px 0 0 var(--accent)} .clip.drop-r{box-shadow:inset -3px 0 0 var(--accent)}
+  .subclip{cursor:pointer}
+  .gapwarn{position:absolute;top:0;bottom:0;background:rgba(184,87,78,.25);border:1px dashed var(--err)}
+  .tl-empty{color:var(--faint);font-size:12.5px;padding:18px 6px}
+  .selinfo{margin:10px 0 0 64px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-size:12.5px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .selinfo .tc{font-family:var(--mono);color:var(--accent);font-size:12px}
+  .selinfo input{flex:1;min-width:140px}
+  /* controller */
+  .btnrow{display:flex;gap:6px;flex-wrap:wrap}
+  button{background:var(--panel2);border:1px solid #333;border-radius:4px;color:var(--txt);font:12.5px inherit;padding:7px 11px;cursor:pointer}
+  button:hover{border-color:#4a4a4a;background:#2a2a2a}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#181008;font-weight:600}
+  button.primary:hover{background:#ef815a}
+  button.good{border-color:#3c5741;color:var(--ok)} button.bad{border-color:#6e4a45;color:#d08a82}
+  textarea,input[type=text]{width:100%;background:#181818;border:1px solid #303030;border-radius:4px;color:var(--txt);font:13px inherit;padding:8px;resize:vertical}
+  textarea:focus,input:focus{outline:none;border-color:var(--accent)}
+  .cmd{display:flex;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px solid #202020;color:var(--dim)}
+  .cmd:last-child{border-bottom:0}
+  .cmd .st{font-family:var(--mono);font-size:10px;flex:none;margin-top:2px}
+  .cmd .st.new{color:var(--warn)} .cmd .st.picked_up{color:var(--ok)}
+  /* feed */
+  .feed{max-height:380px;overflow-y:auto;font-size:12.5px}
+  .ev{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #1e1e1e}
+  .ev .t{font:10px var(--mono);color:var(--faint);flex:none;margin-top:3px;width:52px}
+  .ev .lv{width:7px;height:7px;border-radius:50%;flex:none;margin-top:6px;background:var(--faint)}
+  .ev.ok .lv{background:var(--ok)} .ev.warn .lv{background:var(--warn)} .ev.act .lv{background:var(--accent)}
+  .muted{color:var(--faint);font-size:12px}
+  @media (max-width:1100px){main{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="dot off" id="stateDot"></div>
+  <h1>Regie<b>kamer</b></h1>
+  <div class="crumb" id="crumb">wachten op sessie…</div>
+  <div class="tape" id="tape"></div>
+  <div class="conn" id="conn">verbinden…</div>
+</header>
+
+<main>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <section class="panel">
+      <div class="hd">Fases</div>
+      <div class="bd" id="phases"><div class="muted">nog geen pipeline actief</div></div>
+    </section>
+    <section class="panel">
+      <div class="hd">QA</div>
+      <div class="bd" id="qa"><div class="muted">nog geen rapport</div></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="hd">Timeline <span id="tlname" style="letter-spacing:0;color:var(--txt);text-transform:none;font-weight:600"></span>
+      <span style="margin-left:auto;font-weight:400;letter-spacing:0;text-transform:none;color:var(--faint)">klik = aanwijzen · sleep clip = verplaatsen</span></div>
+    <div class="tlwrap" id="tl"><div class="tl-empty">Zodra Claude een timeline bouwt verschijnt hij hier.</div></div>
+  </section>
+
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <section class="panel">
+      <div class="hd">Regie</div>
+      <div class="bd">
+        <div class="btnrow" style="margin-bottom:8px">
+          <button id="bPause">⏸ Pauzeer</button>
+          <button id="bResume">▶ Ga door</button>
+          <button class="good" id="bApprove">✓ Goedkeuren</button>
+          <button class="bad" id="bRedo">↺ Opnieuw</button>
+        </div>
+        <textarea id="note" rows="3" placeholder="Instructie voor Claude… (bijv. 'muziek zachter' of 'cut op 4.2s is te vroeg')"></textarea>
+        <div style="margin-top:8px;text-align:right"><button class="primary" id="bSend">Stuur instructie</button></div>
+        <div id="cmds" style="margin-top:10px"></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="hd">Meldingen</div>
+      <div class="bd feed" id="feed"><div class="muted">nog geen activiteit</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+let S={}, selected=null, dragFrom=null, lastEvCount=0;
+
+function tc(s){s=Math.max(0,s);const m=Math.floor(s/60),x=(s%60).toFixed(2).padStart(5,"0");return `${String(m).padStart(2,"0")}:${x}`}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+async function post(type,payload){try{await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type,payload})});}catch(e){}
+ poll();}
+
+function renderPhases(st){
+  const el=$("phases");
+  if(!st.phases){el.innerHTML='<div class="muted">nog geen pipeline actief</div>';return}
+  el.innerHTML=st.phases.map(p=>`<div class="phase ${p.status}">
+    <div class="ph-dot">${p.status==="done"?"✓":p.status==="flag"?"!":p.id}</div>
+    <div><div class="ph-name">${esc(p.name)}</div>${p.detail?`<div class="ph-det">${esc(p.detail)}</div>`:""}</div>
+  </div>`).join("");
+}
+function renderQA(st){
+  const q=st.qa, el=$("qa");
+  if(!q){el.innerHTML='<div class="muted">nog geen rapport</div>';return}
+  el.innerHTML=`
+    <div class="qa-row"><span>Timeline</span><span class="v">${esc(q.timeline||"")}</span></div>
+    <div class="qa-row"><span>Oordeel</span><span class="${q.ok?'qa-ok':'qa-bad'}">${q.ok?"SCHOON":"FLAGS"}</span></div>
+    <div class="qa-row"><span>Duur</span><span class="v">${q.duration_s??"–"}s</span></div>
+    <div class="qa-row"><span>Subs</span><span class="v">${q.sub_count??"–"} · sync ${q.sub_sync_worst??"–"}s</span></div>
+    <div class="qa-row"><span>Loudness</span><span class="v">${q.lufs??"–"} LUFS</span></div>
+    ${(q.flags||[]).map(f=>`<div class="flagline">⚑ ${esc(f)}</div>`).join("")}`;
+}
+function laneColor(tr){
+  if(tr.type==="video")return "var(--video)";
+  if(tr.type==="subtitle")return "var(--subs)";
+  return tr.track===1?"var(--dialog)":tr.track===2?"var(--music)":"var(--sfx)";
+}
+function laneLabel(tr){
+  if(tr.type==="video")return "V"+tr.track;
+  if(tr.type==="subtitle")return "SUBS";
+  return tr.track===1?"A1 spraak":tr.track===2?"A2 muziek":"A"+tr.track+" sfx";
+}
+function renderTL(st){
+  const t=st.timeline, el=$("tl");
+  $("tlname").textContent=t?("· "+t.name):"";
+  if(!t||!t.duration){el.innerHTML='<div class="tl-empty">Zodra Claude een timeline bouwt verschijnt hij hier.</div>';return}
+  const dur=t.duration, step=dur>40?5:1;
+  let ticks="";
+  for(let s=0;s<=dur;s+=step) ticks+=`<div class="tick" style="left:${s/dur*100}%"><span>${s}</span></div>`;
+  let html=`<div class="ruler" id="ruler">${ticks}${selected&&selected.kind==="point"?`<div class="marker" style="left:${selected.at/dur*100}%"></div>`:""}</div>`;
+  const vids=t.tracks.filter(x=>x.type==="video");
+  const auds=t.tracks.filter(x=>x.type==="audio");
+  const subs=t.tracks.filter(x=>x.type==="subtitle");
+  for(const tr of [...vids,...auds]){
+    html+=`<div class="trackrow"><div class="tlabel">${laneLabel(tr)}</div><div class="lane" data-tt="${tr.type}" data-tn="${tr.track}">`;
+    tr.items.forEach((it,i)=>{
+      const l=it.start/dur*100, w=Math.max((it.end-it.start)/dur*100,.7);
+      const drag=tr.type==="video"?`draggable="true"`:"";
+      const sel=selected&&selected.kind==="item"&&selected.tt===tr.type&&selected.tn===tr.track&&selected.i===i?" sel":"";
+      html+=`<div class="clip${sel}" ${drag} data-i="${i}" style="left:${l}%;width:${w}%;background:${laneColor(tr)}"><span>${esc(it.name)}</span></div>`;
+      if(tr.type==="video"&&i<tr.items.length-1){
+        const gap=tr.items[i+1].start-it.end;
+        if(gap>0.02) html+=`<div class="gapwarn" style="left:${it.end/dur*100}%;width:${gap/dur*100}%"></div>`;
+      }
+    });
+    html+=`</div></div>`;
+  }
+  for(const tr of subs){
+    html+=`<div class="trackrow"><div class="tlabel">SUBS</div><div class="lane small">`;
+    tr.items.forEach((it,i)=>{
+      const l=it.start/dur*100, w=Math.max((it.end-it.start)/dur*100,.4);
+      html+=`<div class="clip subclip" data-sub="${i}" style="left:${l}%;width:${w}%;background:var(--subs)" title="${esc(it.name)}"><span>${esc(it.name)}</span></div>`;
+    });
+    html+=`</div></div>`;
+  }
+  if(selected){
+    const what=selected.kind==="point"?`aanwijzing op <span class="tc">${tc(selected.at)}</span>`
+      :`<b>${esc(selected.name)}</b> <span class="tc">${tc(selected.start)} – ${tc(selected.end)}</span>`;
+    html+=`<div class="selinfo">${what}
+      <input type="text" id="selNote" placeholder="notitie hierbij…">
+      <button class="primary" id="selSend">Stuur</button>
+      <button id="selX">×</button></div>`;
+  }
+  el.innerHTML=html;
+  // interacties
+  const ruler=$("ruler");
+  if(ruler) ruler.onclick=e=>{const r=ruler.getBoundingClientRect();
+    selected={kind:"point",at:(e.clientX-r.left)/r.width*dur};renderTL(S.state);};
+  el.querySelectorAll(".lane").forEach(lane=>{
+    const tt=lane.dataset.tt, tn=+lane.dataset.tn;
+    lane.querySelectorAll(".clip[data-i]").forEach(c=>{
+      const i=+c.dataset.i;
+      const tr=S.state.timeline.tracks.find(x=>x.type===tt&&x.track===tn);
+      c.onclick=e=>{e.stopPropagation();const it=tr.items[i];
+        selected={kind:"item",tt,tn,i,name:it.name,start:it.start,end:it.end};renderTL(S.state);};
+      if(tt==="video"){
+        c.ondragstart=()=>{dragFrom=i;c.classList.add("dragging")};
+        c.ondragend=()=>{dragFrom=null;renderTL(S.state)};
+        c.ondragover=e=>{e.preventDefault();
+          const r=c.getBoundingClientRect();
+          c.classList.toggle("drop-l",e.clientX<r.left+r.width/2);
+          c.classList.toggle("drop-r",e.clientX>=r.left+r.width/2);};
+        c.ondragleave=()=>c.classList.remove("drop-l","drop-r");
+        c.ondrop=e=>{e.preventDefault();
+          const r=c.getBoundingClientRect();
+          let to=i+(e.clientX>=r.left+r.width/2?1:0);
+          if(dragFrom!==null&&to!==dragFrom&&to!==dragFrom+1){
+            const it=tr.items[dragFrom];
+            post("move_clip",{timeline:S.state.timeline.name,from:dragFrom,to:to>dragFrom?to-1:to,clip:it.name});
+          }
+          c.classList.remove("drop-l","drop-r");};
+      }
+    });
+    lane.querySelectorAll(".clip[data-sub]").forEach(c=>{
+      c.onclick=e=>{e.stopPropagation();
+        const tr=S.state.timeline.tracks.find(x=>x.type==="subtitle");
+        const it=tr.items[+c.dataset.sub];
+        selected={kind:"item",tt:"subtitle",tn:1,i:+c.dataset.sub,name:it.name,start:it.start,end:it.end};
+        renderTL(S.state);};
+    });
+  });
+  const send=$("selSend");
+  if(send){send.onclick=()=>{
+    const note=$("selNote").value.trim();
+    if(selected.kind==="point") post("point",{timeline:S.state.timeline.name,at_sec:+selected.at.toFixed(2),note});
+    else post("note_item",{timeline:S.state.timeline.name,track:`${selected.tt} ${selected.tn}`,item:selected.name,start:selected.start,end:selected.end,note});
+    selected=null;renderTL(S.state);};
+    $("selX").onclick=()=>{selected=null;renderTL(S.state)};
+    $("selNote").focus();}
+}
+function renderFeed(d){
+  const el=$("feed"), evs=d.events||[];
+  if(!evs.length){el.innerHTML='<div class="muted">nog geen activiteit</div>';return}
+  el.innerHTML=evs.slice().reverse().map(e=>{
+    const dt=new Date(e.t*1000).toTimeString().slice(0,8);
+    return `<div class="ev ${e.level}"><div class="t">${dt}</div><div class="lv"></div><div>${esc(e.msg)}</div></div>`}).join("");
+  if(evs.length!==lastEvCount){el.scrollTop=0;lastEvCount=evs.length}
+}
+function renderCmds(d){
+  const el=$("cmds"), cs=(d.commands||[]).slice(-6).reverse();
+  el.innerHTML=cs.map(c=>{
+    const lbl=c.status==="picked_up"?"✓ opgepakt":"● wacht";
+    const p=c.payload||{};
+    const txt=p.note||p.text||p.clip||(p.at_sec!==undefined?("@ "+tc(p.at_sec)):"")||"";
+    return `<div class="cmd"><span class="st ${c.status}">${lbl}</span><span><b>${esc(c.type)}</b> ${esc(String(txt).slice(0,60))}</span></div>`}).join("");
+}
+function renderHeader(d){
+  const st=d.state||{};
+  const busy=st.phases&&st.phases.some(p=>p.status==="busy");
+  const fresh=d.now-(st.updated||0)<90;
+  const dot=$("stateDot");
+  dot.className="dot "+(fresh?(busy?"busy":"done"):"off");
+  $("crumb").innerHTML=st.project||st.video?`<b>${esc(st.project||"")}</b>${st.video?" · "+esc(st.video):""}${st.status?" — "+esc(st.status):""}`:"wachten op sessie…";
+  if(st.session_start){const s=Math.max(0,d.now-st.session_start);
+    $("tape").innerHTML=`sessie <b>${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor(s/60)%60).padStart(2,"0")}:${String(Math.floor(s)%60).padStart(2,"0")}</b>`;}
+}
+async function poll(){
+  try{
+    const d=await(await fetch("/api/state")).json();
+    S=d;
+    $("conn").textContent="live";
+    renderHeader(d);renderPhases(d.state||{});renderQA(d.state||{});
+    if(!document.querySelector(".selinfo input:focus")) renderTL(d.state||{});
+    renderFeed(d);renderCmds(d);
+  }catch(e){$("conn").textContent="geen verbinding";$("stateDot").className="dot off"}
+}
+$("bSend").onclick=()=>{const v=$("note").value.trim();if(v){post("note",{note:v});$("note").value=""}};
+$("note").addEventListener("keydown",e=>{if(e.metaKey&&e.key==="Enter")$("bSend").click()});
+$("bPause").onclick=()=>post("pause",{});
+$("bResume").onclick=()=>post("resume",{});
+$("bApprove").onclick=()=>post("approve",{video:(S.state||{}).video});
+$("bRedo").onclick=()=>{const v=prompt("Wat moet er anders?");if(v!==null)post("redo",{video:(S.state||{}).video,note:v})};
+poll();setInterval(poll,1500);
+</script>
+</body>
+</html>
