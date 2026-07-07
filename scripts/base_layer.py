@@ -638,6 +638,86 @@ def qa_report(name, mp4=None, out_dir=None):
 
 
 # ---------------------------------------------------------------------------
+# FX-bibliotheek, SRT naar schijf, edit-log (2026-07-08)
+# ---------------------------------------------------------------------------
+
+AUDIO_EXT = (".wav", ".mp3", ".m4a", ".aif", ".aiff", ".ogg")
+
+
+def fx_index(fx_dir, refresh=False):
+    """Indexeer de muziek/SFX-bibliotheek van een project (<project>/fx): per bestand
+    duur, categorie (music/sfx uit het pad) en bpm (alleen voor tracks > 8s).
+    Cache in <fx_dir>/.fx_index.json (mtime-based); refresh=True dwingt herindexering.
+    Hiermee is 'zoek een record-scratch' of 'welke track is ~120bpm' één lookup
+    i.p.v. blind find-en door Envato-mappen."""
+    fx_dir = os.path.abspath(fx_dir)
+    cache_path = os.path.join(fx_dir, ".fx_index.json")
+    cache = {}
+    if os.path.isfile(cache_path) and not refresh:
+        with open(cache_path) as f:
+            cache = {e["path"]: e for e in json.load(f)}
+    out = []
+    for root, _dirs, files in os.walk(fx_dir):
+        for fn in files:
+            if not fn.lower().endswith(AUDIO_EXT) or fn.startswith("._"):
+                continue
+            p = os.path.join(root, fn)
+            mtime = os.stat(p).st_mtime_ns
+            hit = cache.get(p)
+            if hit and hit.get("mtime") == mtime:
+                out.append(hit)
+                continue
+            try:
+                dur = _media_duration(p)
+            except Exception:  # noqa: BLE001 — kapot bestand: overslaan, niet crashen
+                continue
+            rel = os.path.relpath(p, fx_dir)
+            entry = {"path": p, "rel": rel, "name": fn, "mtime": mtime,
+                     "category": rel.split(os.sep)[0].lower(),
+                     "duration_s": round(dur, 2), "bpm": None}
+            if dur > 8.0:
+                try:
+                    entry["bpm"] = beats_in(p)["bpm"]
+                except Exception:  # noqa: BLE001
+                    pass
+            out.append(entry)
+    with open(cache_path, "w") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    return out
+
+
+def save_srt(name, out_dir):
+    """Schrijf de subs van het subtitle-spoor van een timeline als nette SRT naar
+    out_dir/<naam>.srt (Roelofs vaste plek: <video-map>/subtitles/). Timeline-start-
+    offset (01:00:00:00) wordt naar 0 teruggerekend."""
+    info = srv.get_timeline_items(name)
+    subs = next((t["items"] for t in info["tracks"] if t["type"] == "subtitle"), [])
+    if not subs:
+        raise RuntimeError(f"save_srt: geen subtitle-spoor op '{name}'")
+    vids = next((t["items"] for t in info["tracks"] if t["type"] == "video"), [])
+    t0 = vids[0]["start_sec"] if vids else subs[0]["start_sec"]
+    entries = [(s["start_sec"] - t0, s["end_sec"] - t0, s["name"]) for s in subs]
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{name}.srt")
+    with open(path, "w") as f:
+        f.write(_srt(entries))
+    return {"status": "success", "path": path, "subs": len(entries)}
+
+
+def edit_log(project_dir, video, text):
+    """Sessie-geheugen per project: append een blok aan <project>/script/edit-log.md.
+    Volgende sessies lezen dit eerst (strategie, take-keuzes, muziek/SFX, open punten)."""
+    d = os.path.join(project_dir, "script")
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, "edit-log.md")
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    block = f"\n## {video} — {stamp}\n\n{text.strip()}\n"
+    with open(path, "a") as f:
+        f.write(block)
+    return {"status": "success", "path": path}
+
+
+# ---------------------------------------------------------------------------
 # Batch-export van finals (alleen op Roelofs expliciete vraag)
 # ---------------------------------------------------------------------------
 

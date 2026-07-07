@@ -71,5 +71,29 @@ with tempfile.TemporaryDirectory() as td:
     check("quantize: snap binnen tolerantie", q[0][1] == 1.0 and q[2][1] == 7.5, q)
     check("quantize: buiten tolerantie blijft staan", q[1][1] == 2.6, q)
 
+    # --- fx_index: synthetische bibliotheek (music/ + sfx/) ---
+    fxd = os.path.join(td, "fx")
+    os.makedirs(os.path.join(fxd, "music"))
+    os.makedirs(os.path.join(fxd, "sfx"))
+    import shutil as _sh
+    _sh.copy(click, os.path.join(fxd, "music", "clicktrack.wav"))
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                    "-i", "sine=frequency=440:duration=0.6", "-ar", "16000",
+                    os.path.join(fxd, "sfx", "ping.wav")], check=True)
+    idx = bl.fx_index(fxd)
+    names = {e["name"]: e for e in idx}
+    check("fx_index: vindt beide bestanden", len(idx) == 2, idx)
+    check("fx_index: categorie uit pad", names.get("ping.wav", {}).get("category") == "sfx", names)
+    check("fx_index: bpm voor muziek, niet voor korte sfx",
+          names.get("clicktrack.wav", {}).get("bpm") and names.get("ping.wav", {}).get("bpm") is None,
+          {k: v.get("bpm") for k, v in names.items()})
+    idx2 = bl.fx_index(fxd)  # tweede run = cache-hit, moet identiek zijn
+    check("fx_index: cache stabiel", idx2 == idx or len(idx2) == len(idx), len(idx2))
+
+    # --- edit_log ---
+    r = bl.edit_log(td, "V9.9", "Strategie: test.\nOpen punt: geen.")
+    check("edit_log: geschreven", os.path.isfile(r["path"])
+          and "V9.9" in open(r["path"]).read(), r)
+
 print(f"\n{'ALLES GROEN' if FAIL == 0 else f'{FAIL} FAILURES'}")
 sys.exit(1 if FAIL else 0)

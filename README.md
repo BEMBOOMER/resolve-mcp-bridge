@@ -1,8 +1,11 @@
 # resolve-mcp-bridge
 
+> Nederlands? Zie [README.nl.md](README.nl.md) voor de korte uitleg en installatie.
+
 MCP server that lets Claude edit in DaVinci Resolve: it reads your timeline and
 media pool, transcribes source audio locally (whisper.cpp, word-level timestamps),
-and batch-applies edits — cuts, punch-in zooms/close-ups, and subtitles.
+and batch-applies edits — cuts, punch-in zooms/close-ups, subtitles, music beds,
+SFX placement, beat-grid detection, and a self-check QA report.
 
 Works with DaVinci Resolve **Free and Studio** (validated against Resolve 21 Studio).
 No panel or plugin needed: it talks to the official Python scripting API of the

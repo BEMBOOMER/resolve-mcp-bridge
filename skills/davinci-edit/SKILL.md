@@ -91,6 +91,11 @@ Kernfuncties in `base_layer.py` (lees het bestand bij twijfel):
 - `plan_export(final_dir)` + `export_finals(final_dir)` — batch-export naar
   final/<blok>/<V-code>.mp4 (ALLEEN op Roelofs expliciete vraag; burn-in-dropdown
   moet vooraf aan staan, de API erft die)
+- `fx_index("<project>/fx")` — geïndexeerde muziek/SFX-bibliotheek (duur, categorie,
+  bpm; gecached in .fx_index.json) — gebruik dit i.p.v. blind find-en
+- `save_srt(naam, "<video>/subtitles")` — subs van het spoor als nette SRT naar schijf
+- `edit_log(project_dir, video, tekst)` — sessie-blok in <project>/script/edit-log.md;
+  lees dat bestand aan het BEGIN van elke sessie voor context van vorige keren
 - `srv.transcribe_clip(pad, language="nl")` — transcript met woord-timestamps (gecached)
 - `srv.add_markers([...])`, `srv.get_timeline_items()`, `srv.render_still(timecode)`
 Offline sanity-check van de helpers: `.venv/bin/python scripts/test_helpers.py`
