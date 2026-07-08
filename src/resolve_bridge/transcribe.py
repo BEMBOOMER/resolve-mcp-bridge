@@ -140,8 +140,63 @@ def detect_silences(media_path, noise_db=-32.0, min_duration=0.45):
     return silences
 
 
+def _split_balanced(words, max_chars):
+    """Split words into chunks of <= max_chars with roughly equal length, so the
+    last chunk never ends up as a one-word orphan card."""
+    import math
+    total = len(" ".join(w["word"] for w in words))
+    n = max(1, math.ceil(total / max_chars))
+    target = total / n
+    chunks, chunk, cur_len = [], [], 0
+    for w in words:
+        add = len(w["word"]) + (1 if chunk else 0)
+        if chunk and (cur_len + add > max_chars or (cur_len >= target and len(chunks) < n - 1)):
+            chunks.append(chunk)
+            chunk, cur_len = [], 0
+            add = len(w["word"])
+        chunk.append(w)
+        cur_len += add
+    if chunk:
+        chunks.append(chunk)
+    return chunks
+
+
+def remap_segments(segments, windows):
+    """Remap source-time transcript segments into timeline time after a re-cut.
+
+    windows: [(in_sec, out_sec, timeline_offset_sec)] — the kept pieces of this
+    source clip in timeline order. Words outside every window are dropped;
+    segments spanning a cut are split per window. Word times shift with them.
+    A small tolerance keeps words whose whisper timestamp clumps just outside a
+    cut point (common at segment starts) without resurrecting removed middles.
+    """
+    TOL = 0.35
+    out = []
+    for seg in segments:
+        words = seg.get("words") or []
+        for (w_in, w_out, off) in windows:
+            if words:
+                kept = [w for w in words
+                        if w_in - TOL <= (w["start"] + w["end"]) / 2 < w_out + TOL]
+                if not kept:
+                    continue
+                shifted = [{"word": w["word"],
+                            "start": off + min(max(w["start"] - w_in, 0.0), w_out - w_in),
+                            "end": off + min(max(w["end"] - w_in, 0.0), w_out - w_in)} for w in kept]
+                out.append({"start": shifted[0]["start"], "end": shifted[-1]["end"],
+                            "text": " ".join(w["word"] for w in kept), "words": shifted})
+            else:
+                s, e = max(seg["start"], w_in), min(seg["end"], w_out)
+                if e - s > 0.05:
+                    out.append({"start": off + (s - w_in), "end": off + (e - w_in),
+                                "text": seg["text"], "words": []})
+    out.sort(key=lambda s: s["start"])
+    return out
+
+
 def to_srt(segments, max_chars=42):
-    """Transcript segments -> SRT text. Splits long segments on word timings."""
+    """Transcript segments -> SRT text. Long segments are split on word timings
+    into balanced chunks (no orphan one-word cards)."""
     def fmt(t):
         ms = int(round(t * 1000))
         return f"{ms // 3600000:02d}:{ms % 3600000 // 60000:02d}:{ms % 60000 // 1000:02d},{ms % 1000:03d}"
@@ -152,19 +207,19 @@ def to_srt(segments, max_chars=42):
         if len(seg["text"]) <= max_chars or len(words) < 2:
             entries.append((seg["start"], seg["end"], seg["text"]))
             continue
-        # split on word boundaries into chunks of <= max_chars
-        chunk, chunk_start = [], words[0]["start"]
-        for w in words:
-            candidate = " ".join(x["word"] for x in chunk + [w])
-            if chunk and len(candidate) > max_chars:
-                entries.append((chunk_start, chunk[-1]["end"], " ".join(x["word"] for x in chunk)))
-                chunk, chunk_start = [w], w["start"]
-            else:
-                chunk.append(w)
-        if chunk:
-            entries.append((chunk_start, chunk[-1]["end"], " ".join(x["word"] for x in chunk)))
+        for chunk in _split_balanced(words, max_chars):
+            entries.append((chunk[0]["start"], chunk[-1]["end"], " ".join(x["word"] for x in chunk)))
+
+    # readability pass: stretch too-short cards (< 1s) toward the next card
+    MIN_DUR, GAP = 1.0, 0.04
+    stretched = []
+    for i, (start, end, text) in enumerate(entries):
+        if end - start < MIN_DUR:
+            limit = entries[i + 1][0] - GAP if i + 1 < len(entries) else start + MIN_DUR
+            end = max(end, min(start + MIN_DUR, limit))
+        stretched.append((start, end, text))
 
     lines = []
-    for i, (start, end, text) in enumerate(entries, 1):
+    for i, (start, end, text) in enumerate(stretched, 1):
         lines += [str(i), f"{fmt(start)} --> {fmt(end)}", text, ""]
     return "\n".join(lines)

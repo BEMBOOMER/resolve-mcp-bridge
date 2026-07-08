@@ -116,8 +116,8 @@ en IN de fx-map zetten zodat het project compleet blijft.
 1. Bed voorbereiden met ffmpeg: `volume=0.16` (≈ -16dB onder dialoog), `afade` in 0.2s /
    uit 0.5s, duur = timeline-duur.
 2. `tl.AddTrack("audio")` → import bed → `mp.AppendToTimeline([{"mediaPoolItem": item,
-   "startFrame": 0, "endFrame": dur_f-1, "mediaType": 2, "trackIndex": 2,
-   "recordFrame": 360000}])`.
+   "startFrame": 0, "endFrame": dur_f, "mediaType": 2, "trackIndex": 2,
+   "recordFrame": 360000}])`. (`endFrame` is EXCLUSIEF: 0..dur_f = precies dur_f frames.)
    **VALKUIL:** `recordFrame` is ABSOLUUT — timeline start op 01:00:00:00 = frame 360000
    bij 100fps. `recordFrame: 0` plaatst het bed op -3600s (onzichtbaar vóór de timeline);
    dan verwijderen met `tl.GetItemListInTrack("audio",2)` + `tl.DeleteClips(items)`.

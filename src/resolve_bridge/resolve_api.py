@@ -114,14 +114,43 @@ def clip_fps(clip):
         raise ResolveError(f"Geen FPS-property op clip {clip.GetName()!r} (kreeg {val!r}).")
 
 
+def clip_frame_count(clip):
+    """Length of a media pool clip in frames, or None if unknown."""
+    frames = clip.GetClipProperty("Frames")
+    try:
+        return int(frames)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return tc_to_frames(clip.GetClipProperty("Duration"), clip_fps(clip))
+    except Exception:
+        return None
+
+
 def timeline_fps(timeline):
     return float(timeline.GetSetting("timelineFrameRate"))
 
 
+def timeline_start_frame(timeline, fps):
+    """Absolute frame number of the timeline's first frame (start timecode offset)."""
+    if hasattr(timeline, "GetStartTimecode"):
+        try:
+            return tc_to_frames(timeline.GetStartTimecode(), fps)
+        except Exception:
+            pass
+    return int(timeline.GetStartFrame())
+
+
+def sec_to_frames(sec, fps):
+    """Seconds -> frames with half-up rounding (round() is banker's: 12.5 -> 12)."""
+    return int(float(sec) * fps + 0.5)
+
+
 def tc_to_frames(tc, fps):
-    """'HH:MM:SS:FF' -> absolute frame count."""
+    """'HH:MM:SS:FF' -> absolute frame count (nominal rate, mirrors frames_to_tc)."""
     h, m, s, f = (int(x) for x in tc.replace(";", ":").split(":"))
-    return int(round((h * 3600 + m * 60 + s) * fps)) + f
+    fps_i = int(round(fps))
+    return (h * 3600 + m * 60 + s) * fps_i + f
 
 
 def frames_to_tc(frames, fps):

@@ -407,8 +407,9 @@ def place_audio(name, path, at_sec=0.0, track_index=2):
     item = imported[0]
     dur_f = int(round(_media_duration(path) * fps))
     rec = int(tl.GetStartFrame()) + int(round(at_sec * fps))
+    # endFrame is exclusive in AppendToTimeline: 0..dur_f places exactly dur_f frames
     res = mp.AppendToTimeline([{"mediaPoolItem": item, "startFrame": 0,
-                                "endFrame": max(dur_f - 1, 1), "mediaType": 2,
+                                "endFrame": max(dur_f, 1), "mediaType": 2,
                                 "trackIndex": track_index, "recordFrame": rec}])
     if not (res and res[0]):
         raise RuntimeError(f"place_audio: AppendToTimeline faalde voor {path}")

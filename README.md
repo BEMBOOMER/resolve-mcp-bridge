@@ -90,8 +90,8 @@ en `RESOLVE_BRIDGE_WHISPER_BIN` als je model of binary ergens anders staat.
 | `build_edit` | **Cuts**: build a new timeline from kept segments (source stays untouched) |
 | `set_transforms` | **Zooms**: batch punch-ins/close-ups via ZoomX/Y + Pan/Tilt |
 | `add_subtitles_srt` | **Subtitles** on the native subtitle track (style once in the Inspector) |
-| `make_srt_from_transcript` | Transcribe → ready-to-import SRT text |
-| `add_text_plus` | Styled Text+ titles/callouts (API can't set duration — titles, not dense subs) |
+| `make_srt_from_transcript` | Transcribe → ready-to-import SRT; pass the `build_edit` segments to get it remapped to the re-cut timeline |
+| `add_text_plus` | Styled Text+ titles/callouts on any track, with position + duration, non-destructive (nested title timelines) |
 | `create_subtitles_from_audio` | Resolve's built-in AI captions (Studio; unreliable via API) |
 | `render_still` | Export the current frame as PNG so Claude can check its own work |
 | `set_playhead` | Move the playhead |
@@ -107,5 +107,5 @@ segments to a fresh timeline. One call = the whole rough cut, fully reversible.
 1. `list_media` + `transcribe_clip` + `detect_silences` — Claude sees and hears the footage
 2. Claude picks segments (drop silences, stumbles, retakes) → `build_edit`
 3. `set_transforms` — alternate punch-ins per segment for emphasis/close-ups
-4. `make_srt_from_transcript` → remap times to the new cut → `add_subtitles_srt`
+4. `make_srt_from_transcript` with the same segments (auto-remapped to the new cut) → `add_subtitles_srt`
 5. `render_still` to verify frames visually; iterate
