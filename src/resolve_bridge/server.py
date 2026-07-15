@@ -5,11 +5,14 @@ then batch-build edits: cuts (new timeline from segments), punch-in zooms,
 and subtitles (native SRT track and/or Text+). Works on Free and Studio.
 """
 
+import contextlib
 import functools
 import glob
+import io
 import json
 import os
 import time
+import traceback
 
 from mcp.server.fastmcp import FastMCP
 
@@ -426,6 +429,92 @@ def render_still(timecode: str = "", out_dir: str = "") -> dict:
 
 @mcp.tool()
 @_tool
+def render_timeline(timeline_name: str = "", out_dir: str = "", custom_name: str = "",
+                    render_format: str = "mp4", codec: str = "H264",
+                    wait: bool = True, max_wait_sec: int = 900) -> dict:
+    """Render a timeline via the Deliver page. Default: mp4/H264, full timeline,
+    video + audio. Without out_dir the file lands in the work dir (check-renders);
+    finals only on explicit request, per the house rules. The render inherits the
+    project's Deliver settings (e.g. subtitle burn-in — set that once in the UI).
+    With wait=True (default) this blocks until done and returns the verified file
+    path; wait=False returns a job_id for get_render_status. Existing render jobs
+    in the queue are left alone."""
+    resolve, project = ra.get_project()
+    tl = ra.get_timeline(project, timeline_name or None)
+    project.SetCurrentTimeline(tl)
+    out_dir = os.path.abspath(os.path.expanduser(out_dir)) if out_dir else os.path.join(WORK_DIR, "renders")
+    os.makedirs(out_dir, exist_ok=True)
+    base = custom_name or f"{tl.GetName()}_{time.strftime('%H%M%S')}"
+    if "." in os.path.basename(base):
+        base = os.path.splitext(base)[0]
+
+    current_page = resolve.GetCurrentPage()
+    resolve.OpenPage("deliver")
+    try:
+        if not project.SetCurrentRenderFormatAndCodec(render_format, codec):
+            formats = project.GetRenderFormats() or {}
+            raise ra.ResolveError(
+                f"Formaat/codec '{render_format}/{codec}' geweigerd. "
+                f"Beschikbare formaten: {', '.join(sorted(formats.values()))}.")
+        project.SetRenderSettings({"TargetDir": out_dir, "CustomName": base,
+                                   "SelectAllFrames": True, "ExportVideo": True, "ExportAudio": True})
+        job = project.AddRenderJob()
+        if not job:
+            raise ra.ResolveError("AddRenderJob faalde — is de timeline leeg?")
+        if not project.StartRendering(job):
+            raise ra.ResolveError("StartRendering gaf false terug.")
+        if not wait:
+            return {"status": "rendering", "job_id": job, "timeline": tl.GetName(),
+                    "expected_file": os.path.join(out_dir, base + f".{render_format}"),
+                    "note": "Volg de voortgang met get_render_status."}
+        deadline = time.time() + max_wait_sec
+        while project.IsRenderingInProgress():
+            if time.time() > deadline:
+                return {"status": "rendering", "job_id": job, "timeline": tl.GetName(),
+                        "message": f"Nog bezig na {max_wait_sec}s — check verder met get_render_status."}
+            time.sleep(1)
+        job_status = project.GetRenderJobStatus(job) or {}
+        if job_status.get("JobStatus") != "Complete":
+            raise ra.ResolveError(f"Render eindigde als {job_status.get('JobStatus')!r}: "
+                                  f"{job_status.get('Error', 'geen details')}")
+    finally:
+        resolve.OpenPage(current_page if current_page else "edit")
+    expected = os.path.join(out_dir, f"{base}.{render_format}")
+    if os.path.isfile(expected) and os.path.getsize(expected) > 0:
+        return {"status": "success", "file": expected, "timeline": tl.GetName()}
+    # Resolve can uniquify the name ("naam 1.mp4") — take the newest match.
+    matches = sorted(glob.glob(os.path.join(out_dir, f"{base}*.{render_format}")),
+                     key=os.path.getmtime, reverse=True)
+    if matches and os.path.getsize(matches[0]) > 0:
+        return {"status": "success", "file": matches[0], "timeline": tl.GetName()}
+    raise ra.ResolveError(f"Job Complete maar geen output gevonden in {out_dir}.")
+
+
+@mcp.tool()
+@_tool
+def get_render_status(job_id: str = "") -> dict:
+    """Status of one render job (by id) or the whole render queue: job status,
+    completion percentage and target path per job."""
+    _, project = ra.get_project()
+    if job_id:
+        status = project.GetRenderJobStatus(job_id) or {}
+        if not status:
+            raise ra.ResolveError(f"Geen render job met id {job_id!r}.")
+        return {"status": "success", "job_id": job_id, **status}
+    jobs = []
+    for job in project.GetRenderJobList() or []:
+        jid = job.get("JobId", "")
+        status = project.GetRenderJobStatus(jid) or {}
+        jobs.append({"job_id": jid, "timeline": job.get("TimelineName"),
+                     "target": os.path.join(job.get("TargetDir", ""), job.get("OutputFilename", "")),
+                     "job_status": status.get("JobStatus"),
+                     "percent": status.get("CompletionPercentage")})
+    return {"status": "success", "rendering": bool(project.IsRenderingInProgress()),
+            "count": len(jobs), "jobs": jobs}
+
+
+@mcp.tool()
+@_tool
 def add_markers(markers: list, timeline_name: str = "") -> dict:
     """Batch-add markers to a timeline to document edit decisions.
     Each marker: {"sec": float (timeline seconds, 0 = timeline start), "color": str
@@ -474,6 +563,54 @@ def set_playhead(timecode: str) -> dict:
     tl = ra.get_timeline(project)
     ok = tl.SetCurrentTimecode(timecode)
     return {"status": "success" if ok else "error", "timecode": tl.GetCurrentTimecode()}
+
+
+@mcp.tool()
+@_tool
+def open_page(page: str) -> dict:
+    """Switch the Resolve UI to a page: media, cut, edit, fusion, color,
+    fairlight or deliver. Useful so Roelof sees what you're working on."""
+    valid = ("media", "cut", "edit", "fusion", "color", "fairlight", "deliver")
+    page = page.strip().lower()
+    if page not in valid:
+        raise ra.ResolveError(f"Onbekende pagina {page!r}. Kies uit: {', '.join(valid)}.")
+    resolve = ra.get_resolve()
+    ok = resolve.OpenPage(page)
+    return {"status": "success" if ok else "error", "page": resolve.GetCurrentPage()}
+
+
+@mcp.tool()
+@_tool
+def execute_resolve_code(code: str) -> dict:
+    """Escape hatch: run Python against the live Resolve scripting API for the rare
+    case no dedicated tool covers it. Pre-loaded names: resolve, project, media_pool,
+    timeline (current timeline, can be None). print() output is captured; assign to
+    a variable named `result` to return a value. Prefer the dedicated tools — they
+    validate input and clean up after themselves; this one trusts you completely."""
+    resolve, project = ra.get_project()
+    namespace = {
+        "resolve": resolve,
+        "project": project,
+        "media_pool": project.GetMediaPool(),
+        "timeline": project.GetCurrentTimeline(),
+    }
+    stdout = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stdout):
+            exec(code, namespace)
+    except Exception as e:
+        return {"status": "error", "output": stdout.getvalue(),
+                "message": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(limit=5)}
+    out = {"status": "success", "output": stdout.getvalue() or "(geen output — print() of zet `result`)"}
+    if namespace.get("result") is not None:
+        result = namespace["result"]
+        try:
+            json.dumps(result)
+            out["result"] = result
+        except (TypeError, ValueError):
+            out["result"] = repr(result)
+    return out
 
 
 @mcp.tool()

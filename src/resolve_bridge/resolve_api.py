@@ -8,14 +8,28 @@ Works on both Free and Studio; Studio-only features are guarded at call time.
 import os
 import sys
 
-RESOLVE_SCRIPT_API = os.environ.get(
-    "RESOLVE_SCRIPT_API",
-    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
-)
-RESOLVE_SCRIPT_LIB = os.environ.get(
-    "RESOLVE_SCRIPT_LIB",
-    "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
-)
+# Default install locations per platform; RESOLVE_SCRIPT_API/LIB env vars win.
+_PLATFORM_DEFAULTS = {
+    "darwin": (
+        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
+        "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
+    ),
+    "win32": (
+        os.path.join(os.environ.get("PROGRAMDATA", r"C:\ProgramData"),
+                     "Blackmagic Design", "DaVinci Resolve", "Support", "Developer", "Scripting"),
+        r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll",
+    ),
+    "linux": (
+        "/opt/resolve/Developer/Scripting",
+        "/opt/resolve/libs/Fusion/fusionscript.so",
+    ),
+}
+
+_key = "darwin" if sys.platform == "darwin" else "win32" if sys.platform.startswith(("win", "cygwin")) else "linux"
+_default_api, _default_lib = _PLATFORM_DEFAULTS[_key]
+
+RESOLVE_SCRIPT_API = os.environ.get("RESOLVE_SCRIPT_API", _default_api)
+RESOLVE_SCRIPT_LIB = os.environ.get("RESOLVE_SCRIPT_LIB", _default_lib)
 
 os.environ["RESOLVE_SCRIPT_API"] = RESOLVE_SCRIPT_API
 os.environ["RESOLVE_SCRIPT_LIB"] = RESOLVE_SCRIPT_LIB

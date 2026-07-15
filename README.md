@@ -14,7 +14,10 @@ running Resolve app.
 ## Requirements
 
 - DaVinci Resolve running, with **Preferences > System > General > External
-  scripting using: Local** (Studio default)
+  scripting using: Local** (Studio default). Default install paths for macOS,
+  Windows and Linux are auto-detected; override with `RESOLVE_SCRIPT_API` /
+  `RESOLVE_SCRIPT_LIB` for non-standard installs. (Transcription assumes
+  Homebrew tooling, so macOS is the tested platform.)
 - Python 3.10+ (`brew install python@3.11`)
 - `brew install ffmpeg whisper-cpp`
 - A whisper model in `models/` (default: `ggml-large-v3-turbo-q5_0.bin`):
@@ -94,7 +97,13 @@ en `RESOLVE_BRIDGE_WHISPER_BIN` als je model of binary ergens anders staat.
 | `add_text_plus` | Styled Text+ titles/callouts on any track, with position + duration, non-destructive (nested title timelines) |
 | `create_subtitles_from_audio` | Resolve's built-in AI captions (Studio; unreliable via API) |
 | `render_still` | Export the current frame as PNG so Claude can check its own work |
+| `render_timeline` | Render a timeline via the Deliver page (mp4/H264 default, verified file path back; blocking or job-id + `get_render_status`) |
+| `get_render_status` | Render queue status with per-job completion percentage |
+| `add_markers` | Batch markers documenting edit decisions (color convention in the docstring) |
+| `delete_timeline` | Delete a timeline by exact name (media pool untouched) |
 | `set_playhead` | Move the playhead |
+| `open_page` | Switch the Resolve UI page (media/cut/edit/fusion/color/fairlight/deliver) |
+| `execute_resolve_code` | Escape hatch: run Python against the live scripting API (`resolve`, `project`, `media_pool`, `timeline` pre-loaded) for anything the tools above don't cover |
 
 ## Why cuts build a new timeline
 
@@ -109,3 +118,7 @@ segments to a fresh timeline. One call = the whole rough cut, fully reversible.
 3. `set_transforms` — alternate punch-ins per segment for emphasis/close-ups
 4. `make_srt_from_transcript` with the same segments (auto-remapped to the new cut) → `add_subtitles_srt`
 5. `render_still` to verify frames visually; iterate
+
+## License
+
+MIT — see [LICENSE](LICENSE).

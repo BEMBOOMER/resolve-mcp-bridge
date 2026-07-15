@@ -59,8 +59,9 @@ verplaatsen, pauzeren/goedkeuren/opnieuw.
 
 ## Spelregels
 
-- Claude **exporteert niet** en verwijdert **nooit** bestaande timelines; het bouwt
-  altijd nieuwe. Burn-in van subs is een Deliver-instelling die je zelf zet.
+- Claude **exporteert geen finals** zonder expliciete vraag (check-renders naar de
+  werkmap mogen) en verwijdert **nooit** bestaande timelines; het bouwt altijd
+  nieuwe. Burn-in van subs is een Deliver-instelling die je zelf zet.
 - Werkt het niet? Draai `scripts/validate.py` met Resolve open en check dat de
   External-scripting-instelling op Local staat.
 
